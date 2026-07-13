@@ -2,6 +2,8 @@
 
 ESP32-2432S028（Cheap Yellow Display）橫屏天氣顯示板，從香港天文台開放數據 API 取得即時天氣與預報，以繁體中文顯示。
 
+**GitHub：** https://github.com/wongkino/esp32-weather-report
+
 ## 功能
 
 - 分區即時天氣（預設：深水埗區）
