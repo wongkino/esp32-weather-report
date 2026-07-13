@@ -28,7 +28,7 @@ static uint32_t lastWeatherFetchMs = 0;
 static bool weatherReady = false;
 static int lineHeight = 16;
 
-static const uint8_t TFT_ROTATION = 3;  // landscape 320x240
+static const uint8_t TFT_ROTATION = 1;  // landscape 320x240（上下調轉）
 static const int SCREEN_W = 320;
 static const int SCREEN_H = 240;
 static const int PAD_X = 8;
