@@ -7,8 +7,10 @@ ESP32-2432S028（Cheap Yellow Display）直屏天氣顯示板，從香港天文�
 ## 文件導覽
 
 - 使用者快速開始：本頁
-- 開發與模組架構：[`docs/architecture.md`](docs/architecture.md)
-- 字型與字表流程：[`docs/font-workflow.md`](docs/font-workflow.md)
+- 開發者操作手冊：[`docs/development.md`](docs/development.md)
+- 架構說明：[`docs/architecture.md`](docs/architecture.md)
+- 字型與字表說明：[`docs/font-workflow.md`](docs/font-workflow.md)
+- 工具目錄說明：[`tools/README.md`](tools/README.md)
 - Agent 協作指引：[`agent.md`](agent.md)
 
 ## 功能
@@ -99,8 +101,9 @@ pio run -e cyd_st7789 -t upload
 
 ```
 ├── docs/
-│   ├── architecture.md       # 開發者導向的模組/資料流說明
-│   └── font-workflow.md      # 字型、字表與 VLW 產生流程
+│   ├── development.md        # 開發者操作手冊
+│   ├── architecture.md       # 模組分工與資料流說明
+│   └── font-workflow.md      # 字型、字表與 VLW 維護流程
 ├── src/
 │   ├── main.cpp              # 主程式：Wi-Fi、API、UI
 │   ├── districts.cpp         # 18 區與測站定義
@@ -118,6 +121,7 @@ pio run -e cyd_st7789 -t upload
 │   ├── wifi_portal.h
 │   └── touch_cyd.h
 ├── tools/
+│   ├── README.md             # 工具目錄與用途說明
 │   ├── generate_hko_font_codes.py
 │   ├── common_traditional_chars.txt
 │   └── Create_font/          # Processing 字型產生腳本
@@ -126,7 +130,7 @@ pio run -e cyd_st7789 -t upload
 └── README.md
 ```
 
-開發時若要快速理解模組責任與主要函式，建議先讀 [`docs/architecture.md`](docs/architecture.md)。
+開發時建議先讀 [`docs/development.md`](docs/development.md)，再依需要查看架構與字型文件。
 ## API 資料來源
 
 | dataType | 用途 |

@@ -1,6 +1,13 @@
-# 字型與字表流程
+# 字型與字表說明
 
 本專案使用 SD 卡上的 VLW 字型檔，以降低 ESP32 記憶體壓力並保留繁體中文顯示能力。
+
+## 文件導覽
+
+- 專案總覽與快速開始：[`../README.md`](../README.md)
+- 開發者操作手冊：[`development.md`](development.md)
+- 架構說明：[`architecture.md`](architecture.md)
+- 工具目錄說明：[`../tools/README.md`](../tools/README.md)
 
 ## 使用的字型層級
 

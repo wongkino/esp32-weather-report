@@ -5,8 +5,10 @@
 ## 文件入口
 
 - 使用者入門與硬體說明：[`README.md`](README.md)
-- 模組分工與資料流：[`docs/architecture.md`](docs/architecture.md)
-- 字型與字表流程：[`docs/font-workflow.md`](docs/font-workflow.md)
+- 開發者操作手冊：[`docs/development.md`](docs/development.md)
+- 架構說明：[`docs/architecture.md`](docs/architecture.md)
+- 字型與字表說明：[`docs/font-workflow.md`](docs/font-workflow.md)
+- 工具目錄說明：[`tools/README.md`](tools/README.md)
 
 ## UI 行為（勿隨意改動除非使用者要求）
 
