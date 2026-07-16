@@ -4,6 +4,13 @@ ESP32-2432S028（Cheap Yellow Display）直屏天氣顯示板，從香港天文�
 
 **GitHub：** https://github.com/wongkino/esp32-weather-report
 
+## 文件導覽
+
+- 使用者快速開始：本頁
+- 開發與模組架構：[`docs/architecture.md`](docs/architecture.md)
+- 字型與字表流程：[`docs/font-workflow.md`](docs/font-workflow.md)
+- Agent 協作指引：[`agent.md`](agent.md)
+
 ## 功能
 
 - 分區即時溫度（網頁選擇 18 區）
@@ -68,6 +75,8 @@ open -a Processing tools/Create_font/Create_font.pde
 ```
 
 > SD 卡須為 **FAT32**。字型檔約 150KB–800KB，勿使用 19MB 全字庫（會導致 ESP32 記憶體不足）。
+>
+> 更完整的字型維護流程見 [`docs/font-workflow.md`](docs/font-workflow.md)。
 
 ### 4. 編譯與燒錄
 
@@ -89,6 +98,9 @@ pio run -e cyd_st7789 -t upload
 ## 專案結構
 
 ```
+├── docs/
+│   ├── architecture.md       # 開發者導向的模組/資料流說明
+│   └── font-workflow.md      # 字型、字表與 VLW 產生流程
 ├── src/
 │   ├── main.cpp              # 主程式：Wi-Fi、API、UI
 │   ├── districts.cpp         # 18 區與測站定義
@@ -110,9 +122,11 @@ pio run -e cyd_st7789 -t upload
 │   ├── common_traditional_chars.txt
 │   └── Create_font/          # Processing 字型產生腳本
 ├── platformio.ini
-├── agent.md                  # AI Agent 開發約束（UI／字型）
+├── agent.md                  # AI Agent 協作與修改約束
 └── README.md
 ```
+
+開發時若要快速理解模組責任與主要函式，建議先讀 [`docs/architecture.md`](docs/architecture.md)。
 ## API 資料來源
 
 | dataType | 用途 |

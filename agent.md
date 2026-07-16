@@ -1,29 +1,19 @@
 # esp32 天氣報告 — Agent 開發指引
 
-本文件供 AI Agent（如 Cursor）在此專案中協作時參考。使用者入門與硬體說明見 [README.md](README.md)。
+本文件供 AI Agent（如 Cursor）在此專案中協作時參考。重點是「修改約束」與「工作入口」，而非重複使用者文件。
 
-## 專案概述
+## 文件入口
+
+- 使用者入門與硬體說明：[`README.md`](README.md)
+- 模組分工與資料流：[`docs/architecture.md`](docs/architecture.md)
+- 字型與字表流程：[`docs/font-workflow.md`](docs/font-workflow.md)
+
+## 專案摘要
 
 - **名稱**：esp32 天氣報告
 - **硬體**：ESP32-2432S028（CYD），ILI9341 240×320 TFT，microSD（VSPI）
 - **框架**：PlatformIO + Arduino，`default_envs = cyd`
 - **語言**：韌體 C++；文件與 UI 文字使用繁體中文
-
-## 核心檔案
-
-| 檔案 | 職責 |
-|------|------|
-| `src/main.cpp` | Wi-Fi、HKO API、直屏單欄 UI、智慧刷新 |
-| `src/districts.cpp` | 18 區標籤與測站名（單一定義） |
-| `src/font_render.cpp` | SD 四級字型、UTF-8 換行、文字繪製 |
-| `src/wifi_portal.cpp` | SoftAP／STA 網頁：Wi-Fi、地區、觸控校準 |
-| `src/touch_cyd.cpp` | XPT2046 SoftSPI＋五點仿射校準 |
-| `include/weather_config.h` | API、刷新間隔 |
-| `include/portal_html.h` | SoftAP／STA 設定頁 HTML |
-| `include/weather_warnings.h` | warnsum code → 畫面簡稱 |
-| `include/districts.h` | 分區宣告、`clampDistrictIndex` |
-| `include/font_config.h` | SD 腳位、`PFTC6`／`10`／`12`／`18` |
-| `include/wifi_config.h` | Wi-Fi 逾時／重試常數（無帳密） |
 
 ## UI 行為（勿隨意改動除非使用者要求）
 
@@ -51,7 +41,7 @@
 - 四層：`PFTC6`（詳／頁尾）／`PFTC10`（狀態說明）／`PFTC12`（內文）／`PFTC18`（溫度）
 - `fontUse*()` 同角色已載入則不重載 SD；行高開機快取
 - **禁止**對 12／18 載入近全字庫；同一時間只載入一顆 VLW
-- 新增 UI 用字：更新字表 → `generate_hko_font_codes.py` → Processing → 更新 SD
+- 新增 UI 用字時，請依 [`docs/font-workflow.md`](docs/font-workflow.md) 更新字表與 VLW 檔
 
 ## PlatformIO
 
@@ -84,10 +74,7 @@ pio device monitor -b 115200
 
 ### 新增字元
 
-1. 編輯 `tools/common_traditional_chars.txt`（韌體 `src/`、`include/` 內 UI 字串會由腳本自動掃描）
-2. `python3 tools/generate_hko_font_codes.py`（離線：`--offline`）
-3. Processing Run `tools/Create_font/Create_font.pde`
-4. 複製 `PFTC6/10/12/18.vlw` 到 SD 卡根目錄
+請依 [`docs/font-workflow.md`](docs/font-workflow.md) 的流程更新字表與字型檔。
 
 ### 除錯
 
