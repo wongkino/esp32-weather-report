@@ -227,7 +227,7 @@ bool wifiIsConnected() {
   return WiFi.status() == WL_CONNECTED;
 }
 
-String wifiPortalUrl() {
+static String wifiPortalUrl() {
   return String("http://") + AP_IP.toString();
 }
 

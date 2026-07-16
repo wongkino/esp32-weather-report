@@ -219,7 +219,7 @@ bool touchBegin() {
   return true;
 }
 
-bool touchReadRaw(uint16_t &rawX, uint16_t &rawY, uint16_t &rawZ) {
+static bool touchReadRaw(uint16_t &rawX, uint16_t &rawY, uint16_t &rawZ) {
   const bool irqPressed = digitalRead(TOUCH_IRQ) == LOW;
   const int samples = 9;
   uint16_t xs[samples];
