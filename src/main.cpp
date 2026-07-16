@@ -259,16 +259,16 @@ bool updateWeatherDisplay() {
 }
 
 int wrapTextToLines(const String &text, String *lines, int maxLines, int maxWidth) {
-  String remaining = text;
   int count = 0;
+  int start = 0;
 
-  while (remaining.length() > 0 && count < maxLines) {
-    const int cut = fontUtf8WrapIndex(remaining, maxWidth);
-    if (cut <= 0) {
+  while (start < (int)text.length() && count < maxLines) {
+    const int cut = fontUtf8WrapIndex(text, start, maxWidth);
+    if (cut <= start) {
       break;
     }
-    lines[count++] = remaining.substring(0, cut);
-    remaining = remaining.substring(cut);
+    lines[count++] = text.substring(start, cut);
+    start = cut;
   }
 
   return count;
@@ -285,11 +285,15 @@ void rebuildForecastLines() {
 
 void drawWrappedText(const String &text, int x, int y, int maxWidth, int lineHeightPx,
                      uint16_t color, int maxLines, uint16_t bg = TFT_BLACK) {
-  String lines[16];
-  const int count = wrapTextToLines(text, lines, maxLines, maxWidth);
-
-  for (int i = 0; i < count; i++) {
-    fontDrawText(tft, x, y + i * lineHeightPx, lines[i].c_str(), color, bg);
+  int start = 0;
+  for (int i = 0; i < maxLines && start < (int)text.length(); i++) {
+    const int cut = fontUtf8WrapIndex(text, start, maxWidth);
+    if (cut <= start) {
+      break;
+    }
+    const String line = text.substring(start, cut);
+    fontDrawText(tft, x, y + i * lineHeightPx, line.c_str(), color, bg);
+    start = cut;
   }
 }
 

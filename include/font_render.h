@@ -23,6 +23,7 @@ void fontUseLarge();
 int fontLineHeight();
 int fontTextWidth(const char *text);
 int fontUtf8WrapIndex(const String &text, int maxWidth);
+int fontUtf8WrapIndex(const String &text, int startIndex, int maxWidth);
 void fontDrawText(TFT_eSPI &tft, int x, int y, const char *text, uint16_t color,
                   uint16_t bg = TFT_BLACK);
 void fontDrawTextRight(TFT_eSPI &tft, int x, int y, const char *text, uint16_t color,
