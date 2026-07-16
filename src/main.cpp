@@ -333,13 +333,27 @@ static String buildApiUrl(const char *dataType) {
   return String(HKO_API_BASE) + "?dataType=" + dataType + "&lang=" + HKO_LANG;
 }
 
+static void logHttpBodyPreview(const char *dataType, const String &payload) {
+  const size_t previewLen = min(payload.length(), (size_t)120);
+  Serial.printf("[Weather] body preview for %s (%u bytes): ", dataType, (unsigned)payload.length());
+  for (size_t i = 0; i < previewLen; i++) {
+    const char c = payload[i];
+    Serial.write((c >= 32 && c <= 126) ? c : '.');
+  }
+  Serial.println();
+}
+
 static bool httpGetJson(const char *dataType, JsonDocument &doc) {
   const String url = buildApiUrl(dataType);
   WiFiClientSecure client;
   client.setInsecure();
+  client.setTimeout(WEATHER_HTTP_TIMEOUT_MS);
 
   HTTPClient http;
   http.setTimeout(WEATHER_HTTP_TIMEOUT_MS);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.addHeader("Accept", "application/json");
+  http.addHeader("User-Agent", "esp32-hk-weather-monitor/1.0");
   if (!http.begin(client, url)) {
     Serial.printf("[Weather] HTTP begin failed: %s\n", dataType);
     return false;
@@ -352,9 +366,24 @@ static bool httpGetJson(const char *dataType, JsonDocument &doc) {
     return false;
   }
 
-  const DeserializationError err = deserializeJson(doc, http.getStream());
+  // 先緩衝完整回應；直接 parse stream 在 ESP32 TLS 上常出現 InvalidInput
+  const String payload = http.getString();
   http.end();
+
+  if (payload.length() == 0) {
+    Serial.printf("[Weather] empty body for %s\n", dataType);
+    return false;
+  }
+  if (payload[0] != '{' && payload[0] != '[') {
+    logHttpBodyPreview(dataType, payload);
+    Serial.printf("[Weather] non-JSON body for %s\n", dataType);
+    return false;
+  }
+
+  doc.clear();
+  const DeserializationError err = deserializeJson(doc, payload);
   if (err) {
+    logHttpBodyPreview(dataType, payload);
     Serial.printf("[Weather] JSON error for %s: %s\n", dataType, err.c_str());
     return false;
   }
