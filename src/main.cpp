@@ -72,31 +72,25 @@ struct WeatherData {
 
 static WeatherData weather;
 
-bool fetchWeather();
-bool updateWeatherDisplay();
-void drawWeatherScreen();
-void drawCurrentPage();
-void drawFooterOnly();
-void drawStatusScreen(const char *title, const char *detail);
-void loadDistrictPreference();
-const WeatherDistrict &currentDistrict();
-void onDistrictChangedFromWeb(int index);
-void onTouchCalStartFromWeb();
-void onTouchCalResetFromWeb();
-void onTouchCalDoneFromWeb();
-void drawTouchTestScreen();
+static bool fetchWeather();
+static bool updateWeatherDisplay();
+static void drawWeatherScreen();
+static void drawCurrentPage();
+static void drawFooterOnly();
+static void drawStatusScreen(const char *title, const char *detail);
+static void drawTouchTestScreen();
 
-const WeatherDistrict &currentDistrict() {
+static const WeatherDistrict &currentDistrict() {
   districtIndex = clampDistrictIndex(districtIndex);
   return WEATHER_DISTRICTS[districtIndex];
 }
 
-void loadDistrictPreference() {
+static void loadDistrictPreference() {
   districtIndex = wifiLoadDistrictIndex();
   Serial.printf("[District] loaded idx=%d %s\n", districtIndex, currentDistrict().label);
 }
 
-void onDistrictChangedFromWeb(int index) {
+static void onDistrictChangedFromWeb(int index) {
   districtIndex = index;
   Serial.printf("[District] web change idx=%d %s\n", districtIndex, currentDistrict().label);
   if (WiFi.status() != WL_CONNECTED) {
@@ -110,7 +104,7 @@ void onDistrictChangedFromWeb(int index) {
   }
 }
 
-void onTouchCalStartFromWeb() {
+static void onTouchCalStartFromWeb() {
   touchTestMode = true;
   touchCalibrating = true;
   lastTouchX = -1;
@@ -119,7 +113,7 @@ void onTouchCalStartFromWeb() {
   Serial.println("[Touch] calibration started from web");
 }
 
-void onTouchCalResetFromWeb() {
+static void onTouchCalResetFromWeb() {
   touchCalClear();
   touchTestMode = false;
   touchCalibrating = false;
@@ -130,7 +124,7 @@ void onTouchCalResetFromWeb() {
   Serial.println("[Touch] reset to default from web");
 }
 
-void onTouchCalDoneFromWeb() {
+static void onTouchCalDoneFromWeb() {
   touchCalCancel();
   touchTestMode = false;
   touchCalibrating = false;
@@ -153,7 +147,7 @@ static int cachedSmallH = 0;
 static int cachedDetailH = 0;
 static int cachedLargeH = 0;
 
-void cacheFontHeights() {
+static void cacheFontHeights() {
   fontUseMain();
   cachedMainH = fontLineHeight();
   fontUseSmall();
@@ -165,7 +159,7 @@ void cacheFontHeights() {
   fontUseMain();
 }
 
-WeatherLayout calcWeatherLayout() {
+static WeatherLayout calcWeatherLayout() {
   WeatherLayout layout{};
 
   if (cachedMainH <= 0) {
@@ -203,7 +197,7 @@ WeatherLayout calcWeatherLayout() {
   return layout;
 }
 
-bool weatherDisplayChanged(const WeatherData &before, const WeatherData &after) {
+static bool weatherDisplayChanged(const WeatherData &before, const WeatherData &after) {
   if (isnan(before.temperature) != isnan(after.temperature)) {
     return true;
   }
@@ -236,7 +230,7 @@ bool weatherDisplayChanged(const WeatherData &before, const WeatherData &after) 
   return false;
 }
 
-bool updateWeatherDisplay() {
+static bool updateWeatherDisplay() {
   const bool wasReady = weatherReady;
   const WeatherData previous = weather;
 
@@ -258,7 +252,7 @@ bool updateWeatherDisplay() {
   return true;
 }
 
-int wrapTextToLines(const String &text, String *lines, int maxLines, int maxWidth) {
+static int wrapTextToLines(const String &text, String *lines, int maxLines, int maxWidth) {
   int count = 0;
   int start = 0;
 
@@ -274,7 +268,7 @@ int wrapTextToLines(const String &text, String *lines, int maxLines, int maxWidt
   return count;
 }
 
-void rebuildForecastLines() {
+static void rebuildForecastLines() {
   if (weather.forecast == lastWrappedForecast && forecastLineCount > 0) {
     return;
   }
@@ -283,8 +277,8 @@ void rebuildForecastLines() {
   lastWrappedForecast = weather.forecast;
 }
 
-void drawWrappedText(const String &text, int x, int y, int maxWidth, int lineHeightPx,
-                     uint16_t color, int maxLines, uint16_t bg = TFT_BLACK) {
+static void drawWrappedText(const String &text, int x, int y, int maxWidth, int lineHeightPx,
+                            uint16_t color, int maxLines, uint16_t bg = TFT_BLACK) {
   int start = 0;
   for (int i = 0; i < maxLines && start < (int)text.length(); i++) {
     const int cut = fontUtf8WrapIndex(text, start, maxWidth);
@@ -297,7 +291,7 @@ void drawWrappedText(const String &text, int x, int y, int maxWidth, int lineHei
   }
 }
 
-void initDisplay() {
+static void initDisplay() {
   pinMode(TFT_BL, OUTPUT);
   digitalWrite(TFT_BL, TFT_BACKLIGHT_ON);
   tft.init();
@@ -316,12 +310,12 @@ void initDisplay() {
   }
 }
 
-void onWifiPortalStatus(const char *title, const char *detail) {
+static void onWifiPortalStatus(const char *title, const char *detail) {
   drawStatusScreen(title, detail);
 }
 
 // 先試 NVS 已存憑證；失敗則開 AP 網頁設定直到連上
-bool ensureWifiConnected() {
+static bool ensureWifiConnected() {
   if (wifiIsConnected()) {
     return true;
   }
@@ -335,11 +329,11 @@ bool ensureWifiConnected() {
   return wifiStartConfigPortal(onWifiPortalStatus);
 }
 
-String buildApiUrl(const char *dataType) {
+static String buildApiUrl(const char *dataType) {
   return String(HKO_API_BASE) + "?dataType=" + dataType + "&lang=" + HKO_LANG;
 }
 
-bool httpGetJson(const char *dataType, JsonDocument &doc) {
+static bool httpGetJson(const char *dataType, JsonDocument &doc) {
   const String url = buildApiUrl(dataType);
   WiFiClientSecure client;
   client.setInsecure();
@@ -367,7 +361,7 @@ bool httpGetJson(const char *dataType, JsonDocument &doc) {
   return true;
 }
 
-bool pickDistrictTemperature(JsonObject temperatureRoot, float &valueOut) {
+static bool pickDistrictTemperature(JsonObject temperatureRoot, float &valueOut) {
   JsonArray data = temperatureRoot["data"].as<JsonArray>();
   if (data.isNull()) {
     return false;
@@ -392,7 +386,7 @@ bool pickDistrictTemperature(JsonObject temperatureRoot, float &valueOut) {
   return !isnan(valueOut);
 }
 
-bool pickHumidity(JsonObject humidityRoot, int &valueOut) {
+static bool pickHumidity(JsonObject humidityRoot, int &valueOut) {
   JsonArray data = humidityRoot["data"].as<JsonArray>();
   if (data.isNull() || data.size() == 0) {
     return false;
@@ -410,7 +404,7 @@ bool pickHumidity(JsonObject humidityRoot, int &valueOut) {
   return valueOut >= 0;
 }
 
-String formatUpdateLabel(const char *isoTime) {
+static String formatUpdateLabel(const char *isoTime) {
   // 2026-07-16T09:45:00+08:00
   if (isoTime == nullptr || strlen(isoTime) < 16) {
     return "";
@@ -427,7 +421,7 @@ String formatUpdateLabel(const char *isoTime) {
   return String(buf);
 }
 
-void drawHeaderAndTemp(const WeatherLayout &layout) {
+static void drawHeaderAndTemp(const WeatherLayout &layout) {
   char tempLine[16];
   if (isnan(weather.temperature)) {
     snprintf(tempLine, sizeof(tempLine), "--°C");
@@ -461,7 +455,7 @@ void drawHeaderAndTemp(const WeatherLayout &layout) {
   fontDrawText(tft, metricsX, my, line, COLOR_TEXT, COLOR_BG);
 }
 
-void drawFooter(const WeatherLayout &layout) {
+static void drawFooter(const WeatherLayout &layout) {
   fontUseDetail();
   char footer[72];
   footer[0] = '\0';
@@ -478,7 +472,7 @@ void drawFooter(const WeatherLayout &layout) {
   }
 }
 
-void drawFooterOnly() {
+static void drawFooterOnly() {
   if (!weatherReady || touchTestMode) {
     return;
   }
@@ -488,7 +482,7 @@ void drawFooterOnly() {
   drawFooter(layout);
 }
 
-void drawForecastBlock(const WeatherLayout &layout) {
+static void drawForecastBlock(const WeatherLayout &layout) {
   fontUseDetail();
 
   const int maxLines = layout.forecastLinesPerPage;
@@ -530,7 +524,7 @@ void drawForecastBlock(const WeatherLayout &layout) {
   drawFooter(layout);
 }
 
-void drawWeatherWarning(const WeatherLayout &layout) {
+static void drawWeatherWarning(const WeatherLayout &layout) {
   if (weather.warning.length() == 0 || layout.warningH <= 0) {
     return;
   }
@@ -544,7 +538,7 @@ void drawWeatherWarning(const WeatherLayout &layout) {
   fontDrawText(tft, textX, textY, weather.warning.c_str(), COLOR_WARN_FG, COLOR_WARN_BG);
 }
 
-bool fetchWeather() {
+static bool fetchWeather() {
   WeatherData next;
 
   JsonDocument currentDoc;
@@ -603,7 +597,7 @@ bool fetchWeather() {
   return true;
 }
 
-void drawStatusScreen(const char *title, const char *detail) {
+static void drawStatusScreen(const char *title, const char *detail) {
   tft.fillScreen(COLOR_BG);
   fontUseMain();
 
@@ -620,7 +614,7 @@ void drawStatusScreen(const char *title, const char *detail) {
   }
 }
 
-void drawTouchMarker(int16_t x, int16_t y) {
+static void drawTouchMarker(int16_t x, int16_t y) {
   tft.fillCircle(x, y, 8, TFT_YELLOW);
   tft.drawCircle(x, y, 12, TFT_WHITE);
   tft.drawFastHLine(x - 18, y, 36, TFT_YELLOW);
@@ -634,7 +628,7 @@ void drawTouchMarker(int16_t x, int16_t y) {
   fontUseMain();
 }
 
-void drawTouchTestScreen() {
+static void drawTouchTestScreen() {
   tft.fillScreen(COLOR_BG);
   fontUseMain();
 
@@ -676,7 +670,7 @@ void drawTouchTestScreen() {
   fontUseMain();
 }
 
-void drawWeatherScreen() {
+static void drawWeatherScreen() {
   rebuildForecastLines();
   const WeatherLayout layout = calcWeatherLayout();
 
@@ -686,7 +680,7 @@ void drawWeatherScreen() {
   drawWeatherWarning(layout);
 }
 
-void drawCurrentPage() {
+static void drawCurrentPage() {
   if (touchTestMode) {
     drawTouchTestScreen();
     if (!touchCalibrating && lastTouchX >= 0) {
@@ -697,7 +691,7 @@ void drawCurrentPage() {
   }
 }
 
-bool handleTouch() {
+static bool handleTouch() {
   if (!touchTestMode) {
     return false;  // 天氣畫面無觸控操作，略過 SoftSPI 取樣
   }

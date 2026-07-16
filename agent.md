@@ -8,13 +8,6 @@
 - 模組分工與資料流：[`docs/architecture.md`](docs/architecture.md)
 - 字型與字表流程：[`docs/font-workflow.md`](docs/font-workflow.md)
 
-## 專案摘要
-
-- **名稱**：esp32 天氣報告
-- **硬體**：ESP32-2432S028（CYD），ILI9341 240×320 TFT，microSD（VSPI）
-- **框架**：PlatformIO + Arduino，`default_envs = cyd`
-- **語言**：韌體 C++；文件與 UI 文字使用繁體中文
-
 ## UI 行為（勿隨意改動除非使用者要求）
 
 - 直屏 `TFT_ROTATION = 0`（240×320），**單欄垂直**黑底白字；四級字型 PFTC6／10／12／18
