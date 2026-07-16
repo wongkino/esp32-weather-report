@@ -6,7 +6,8 @@
 
 - 專案總覽與快速開始：[`../README.md`](../README.md)
 - 開發者操作手冊：[`development.md`](development.md)
-- 字型與字表流程：[`font-workflow.md`](font-workflow.md)
+- 字型與字表說明：[`font-workflow.md`](font-workflow.md)
+- 多 Agent 協作規範：[`agents.md`](agents.md)
 
 ## 模組分工
 

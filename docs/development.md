@@ -5,9 +5,10 @@
 ## 文件導覽
 
 - 專案總覽與快速開始：[`../README.md`](../README.md)
-- 模組分工與資料流：[`architecture.md`](architecture.md)
-- 字型與字表流程：[`font-workflow.md`](font-workflow.md)
+- 架構說明：[`architecture.md`](architecture.md)
+- 字型與字表說明：[`font-workflow.md`](font-workflow.md)
 - 工具目錄說明：[`../tools/README.md`](../tools/README.md)
+- 多 Agent 協作規範：[`agents.md`](agents.md)
 
 ## 開發環境
 

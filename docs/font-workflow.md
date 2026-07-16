@@ -8,6 +8,7 @@
 - 開發者操作手冊：[`development.md`](development.md)
 - 架構說明：[`architecture.md`](architecture.md)
 - 工具目錄說明：[`../tools/README.md`](../tools/README.md)
+- 多 Agent 協作規範：[`agents.md`](agents.md)
 
 ## 使用的字型層級
 

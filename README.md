@@ -11,7 +11,8 @@ ESP32-2432S028（Cheap Yellow Display）直屏天氣顯示板，從香港天文�
 - 架構說明：[`docs/architecture.md`](docs/architecture.md)
 - 字型與字表說明：[`docs/font-workflow.md`](docs/font-workflow.md)
 - 工具目錄說明：[`tools/README.md`](tools/README.md)
-- Agent 協作指引：[`agent.md`](agent.md)
+- AI 協作指引：[`agent.md`](agent.md)
+- 多 Agent 協作規範：[`docs/agents.md`](docs/agents.md)
 
 ## 功能
 
@@ -103,7 +104,8 @@ pio run -e cyd_st7789 -t upload
 ├── docs/
 │   ├── development.md        # 開發者操作手冊
 │   ├── architecture.md       # 模組分工與資料流說明
-│   └── font-workflow.md      # 字型、字表與 VLW 維護流程
+│   ├── font-workflow.md      # 字型、字表與 VLW 維護流程
+│   └── agents.md             # 多 Agent 角色與工作流規範
 ├── src/
 │   ├── main.cpp              # 主程式：Wi-Fi、API、UI
 │   ├── districts.cpp         # 18 區與測站定義
@@ -126,7 +128,7 @@ pio run -e cyd_st7789 -t upload
 │   ├── common_traditional_chars.txt
 │   └── Create_font/          # Processing 字型產生腳本
 ├── platformio.ini
-├── agent.md                  # AI Agent 協作與修改約束
+├── agent.md                  # AI 協作精簡入口
 └── README.md
 ```
 
