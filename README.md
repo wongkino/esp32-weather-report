@@ -1,8 +1,8 @@
-# esp32 天氣報告
+# esp32 hk-weather-monitor
 
 ESP32-2432S028（Cheap Yellow Display）直屏天氣顯示板，從香港天文台開放數據 API 取得即時天氣與預報，以繁體中文顯示。
 
-**GitHub：** https://github.com/wongkino/esp32-weather-report
+**GitHub：** https://github.com/wongkino/esp32-hk-weather-monitor
 
 ## 文件導覽
 
