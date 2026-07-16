@@ -335,26 +335,32 @@ String buildApiUrl(const char *dataType) {
   return String(HKO_API_BASE) + "?dataType=" + dataType + "&lang=" + HKO_LANG;
 }
 
-String httpGet(const String &url) {
+bool httpGetJson(const char *dataType, JsonDocument &doc) {
+  const String url = buildApiUrl(dataType);
   WiFiClientSecure client;
   client.setInsecure();
 
   HTTPClient http;
   http.setTimeout(WEATHER_HTTP_TIMEOUT_MS);
   if (!http.begin(client, url)) {
-    return "";
+    Serial.printf("[Weather] HTTP begin failed: %s\n", dataType);
+    return false;
   }
 
   const int code = http.GET();
-  String payload;
-  if (code == HTTP_CODE_OK) {
-    payload = http.getString();
-  } else {
-    Serial.printf("HTTP %d for %s\n", code, url.c_str());
+  if (code != HTTP_CODE_OK) {
+    Serial.printf("[Weather] HTTP %d for %s\n", code, url.c_str());
+    http.end();
+    return false;
   }
 
+  const DeserializationError err = deserializeJson(doc, http.getStream());
   http.end();
-  return payload;
+  if (err) {
+    Serial.printf("[Weather] JSON error for %s: %s\n", dataType, err.c_str());
+    return false;
+  }
+  return true;
 }
 
 bool pickDistrictTemperature(JsonObject temperatureRoot, float &valueOut) {
@@ -537,16 +543,9 @@ void drawWeatherWarning(const WeatherLayout &layout) {
 bool fetchWeather() {
   WeatherData next;
 
-  const String currentPayload = httpGet(buildApiUrl("rhrread"));
-  if (currentPayload.isEmpty()) {
-    Serial.println("[Weather] rhrread empty");
-    return false;
-  }
-
   JsonDocument currentDoc;
-  const DeserializationError err = deserializeJson(currentDoc, currentPayload);
-  if (err) {
-    Serial.printf("[Weather] JSON error: %s\n", err.c_str());
+  if (!httpGetJson("rhrread", currentDoc)) {
+    Serial.println("[Weather] rhrread empty");
     return false;
   }
 
@@ -560,20 +559,16 @@ bool fetchWeather() {
   const char *rhrUpdate = currentDoc["updateTime"] | "";
   next.updateLabel = formatUpdateLabel(rhrUpdate);
 
-  const String warnsumPayload = httpGet(buildApiUrl("warnsum"));
-  if (!warnsumPayload.isEmpty()) {
+  {
     JsonDocument warnsumDoc;
-    const DeserializationError warnsumErr = deserializeJson(warnsumDoc, warnsumPayload);
-    if (!warnsumErr) {
+    if (httpGetJson("warnsum", warnsumDoc)) {
       next.warning = joinActiveWarningNames(warnsumDoc.as<JsonObject>());
     }
   }
 
-  const String forecastPayload = httpGet(buildApiUrl("flw"));
-  if (!forecastPayload.isEmpty()) {
+  {
     JsonDocument forecastDoc;
-    const DeserializationError forecastErr = deserializeJson(forecastDoc, forecastPayload);
-    if (!forecastErr) {
+    if (httpGetJson("flw", forecastDoc)) {
       next.forecast = forecastDoc["forecastDesc"] | "";
       const char *flwUpdate = forecastDoc["updateTime"] | "";
       const String flwLabel = formatUpdateLabel(flwUpdate);
@@ -587,11 +582,9 @@ bool fetchWeather() {
     next.forecast = "暫時無法取得本港天氣預測。";
   }
 
-  const String fndPayload = httpGet(buildApiUrl("fnd"));
-  if (!fndPayload.isEmpty()) {
+  {
     JsonDocument fndDoc;
-    const DeserializationError fndErr = deserializeJson(fndDoc, fndPayload);
-    if (!fndErr) {
+    if (httpGetJson("fnd", fndDoc)) {
       JsonArray days = fndDoc["weatherForecast"].as<JsonArray>();
       if (!days.isNull() && days.size() > 0) {
         JsonObject day0 = days[0];
