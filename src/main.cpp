@@ -1,4 +1,6 @@
 #include <Arduino.h>
+#include <math.h>
+#include <string.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
@@ -6,119 +8,202 @@
 #include <TFT_eSPI.h>
 #include <U8g2_for_TFT_eSPI.h>
 #include "wifi_config.h"
+#include "wifi_portal.h"
 #include "weather_config.h"
+#include "weather_warnings.h"
 #include "font_render.h"
+#include "districts.h"
+#include "touch_cyd.h"
 
 TFT_eSPI tft = TFT_eSPI();
 U8g2_for_TFT_eSPI u8g2;
 
-struct WiFiNetwork {
-  const char *ssid;
-  const char *password;
-};
+static int districtIndex = 0;
+static uint32_t lastTouchMs = 0;
+static bool touchTestMode = false;
+static bool touchCalibrating = false;
+static int16_t lastTouchX = -1;
+static int16_t lastTouchY = -1;
 
-static const WiFiNetwork WIFI_NETWORKS[] = {
-    {WIFI_1_SSID, WIFI_1_PASSWORD},
-    {WIFI_2_SSID, WIFI_2_PASSWORD},
-};
-
-static const size_t WIFI_NETWORK_COUNT = sizeof(WIFI_NETWORKS) / sizeof(WIFI_NETWORKS[0]);
-static int preferredNetworkIndex = -1;
 static uint32_t lastWeatherFetchMs = 0;
 static bool weatherReady = false;
 static int lineHeight = 16;
+static int smallLineHeight = 14;
 
-static const uint8_t TFT_ROTATION = 1;  // landscape 320x240（上下調轉）
-static const int SCREEN_W = 320;
-static const int SCREEN_H = 240;
+static const uint8_t TFT_ROTATION = 0;  // portrait 240x320
+static const int SCREEN_W = 240;
+static const int SCREEN_H = 320;
 static const int PAD_X = 8;
-static const int LEFT_W = 108;
-static const int RIGHT_X = PAD_X + LEFT_W + 6;
-static const int RIGHT_W = SCREEN_W - RIGHT_X - PAD_X;
+static const int CONTENT_W = SCREEN_W - PAD_X * 2;
 
-static const uint16_t COLOR_BG = TFT_NAVY;
-static const uint16_t COLOR_DIVIDER = 0x4208;
-static const uint16_t COLOR_LABEL = TFT_CYAN;
-static const uint16_t COLOR_MUTED = TFT_DARKGREY;
+static const uint16_t COLOR_BG = TFT_BLACK;
+static const uint16_t COLOR_TEXT = TFT_WHITE;
+static const uint16_t COLOR_MUTED = 0x8410;      // mid grey
+static const uint16_t COLOR_TEMP_LOW = 0x7DFF;   // light blue
+static const uint16_t COLOR_TEMP_HIGH = 0xFD20;  // orange
+static const uint16_t COLOR_WARN_BG = TFT_RED;
+static const uint16_t COLOR_WARN_FG = TFT_WHITE;
 
 struct WeatherLayout {
-  int lineHeight;
+  int mainLineHeight;
+  int detailLineHeight;
   int contentTop;
-  int footerY;
+  int tempY;
+  int metricsY;
+  int forecastY;
+  int updateY;
   int warningY;
   int warningH;
-  int forecastLabelY;
-  int forecastY;
   int forecastLinesPerPage;
 };
 
-#if UI_FONT == FONT_WQY12_CHINESE2
-static const uint8_t *TEXT_FONT = u8g2_font_wqy12_t_chinese2;
-#elif UI_FONT == FONT_WQY16_CHINESE2
-static const uint8_t *TEXT_FONT = u8g2_font_wqy16_t_chinese2;
-#elif UI_FONT == FONT_UNIFONT_CHINESE2
+// SD 字型失敗時的 U8g2 fallback（字集有限，僅狀態畫面）
 static const uint8_t *TEXT_FONT = u8g2_font_unifont_t_chinese2;
-#elif UI_FONT == FONT_UNIFONT_CHINESE3
-static const uint8_t *TEXT_FONT = u8g2_font_unifont_t_chinese3;
-#elif UI_FONT == FONT_WQY12_GB2312B
-static const uint8_t *TEXT_FONT = u8g2_font_wqy12_t_gb2312b;
-#elif UI_FONT == FONT_SD_PFTC
-static const uint8_t *TEXT_FONT = u8g2_font_unifont_t_chinese2;
-#else
-static const uint8_t *TEXT_FONT = u8g2_font_wqy14_t_chinese2;
-#endif
 
 struct WeatherData {
-  String tempPlace;
   float temperature = NAN;
+  float tempMin = NAN;
+  float tempMax = NAN;
   int humidity = -1;
-  float rainfallMm = NAN;
-  int uvIndex = -1;
   String forecast;
+  String updateLabel;
   String warning;
 };
 
 static WeatherData weather;
 
 bool fetchWeather();
+bool updateWeatherDisplay();
 void drawWeatherScreen();
+void drawCurrentPage();
+void drawFooterOnly();
+void drawStatusScreen(const char *title, const char *detail);
+void loadDistrictPreference();
+const WeatherDistrict &currentDistrict();
+void onDistrictChangedFromWeb(int index);
+void onTouchCalStartFromWeb();
+void onTouchCalResetFromWeb();
+void onTouchCalDoneFromWeb();
+void drawTouchTestScreen();
 
-WeatherLayout calcWeatherLayout() {
-  WeatherLayout layout{};
-  layout.lineHeight = lineHeight;
-  layout.contentTop = 6;
-
-  const bool hasWarning = weather.warning.length() > 0;
-  layout.warningH = hasWarning ? layout.lineHeight + 10 : 0;
-  layout.footerY = SCREEN_H - 4 - layout.warningH;
-  layout.warningY = SCREEN_H - layout.warningH;
-  layout.forecastLabelY = layout.contentTop;
-  layout.forecastY = layout.forecastLabelY + layout.lineHeight + 4;
-
-  const int forecastArea = layout.footerY - layout.forecastY - 4;
-  layout.forecastLinesPerPage = max(1, forecastArea / layout.lineHeight);
-  return layout;
+const WeatherDistrict &currentDistrict() {
+  districtIndex = clampDistrictIndex(districtIndex);
+  return WEATHER_DISTRICTS[districtIndex];
 }
 
-bool isPlaceholderSsid(const char *ssid) {
-  return ssid == nullptr || ssid[0] == '\0' ||
-         String(ssid).startsWith("YOUR_WIFI_SSID");
+void loadDistrictPreference() {
+  districtIndex = wifiLoadDistrictIndex();
+  Serial.printf("[District] loaded idx=%d %s\n", districtIndex, currentDistrict().label);
 }
 
-bool isConfiguredNetwork(const WiFiNetwork &network) {
-  return !isPlaceholderSsid(network.ssid) && network.password != nullptr;
+void onDistrictChangedFromWeb(int index) {
+  districtIndex = index;
+  Serial.printf("[District] web change idx=%d %s\n", districtIndex, currentDistrict().label);
+  if (WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+  drawStatusScreen("啟動中", "正在更新天氣…");
+  if (updateWeatherDisplay()) {
+    lastWeatherFetchMs = millis();
+  } else if (weatherReady) {
+    drawCurrentPage();
+  }
+}
+
+void onTouchCalStartFromWeb() {
+  touchTestMode = true;
+  touchCalibrating = true;
+  lastTouchX = -1;
+  touchCalStart();
+  drawTouchTestScreen();
+  Serial.println("[Touch] calibration started from web");
+}
+
+void onTouchCalResetFromWeb() {
+  touchCalClear();
+  touchTestMode = false;
+  touchCalibrating = false;
+  lastTouchX = -1;
+  if (weatherReady) {
+    drawCurrentPage();
+  }
+  Serial.println("[Touch] reset to default from web");
+}
+
+void onTouchCalDoneFromWeb() {
+  touchCalCancel();
+  touchTestMode = false;
+  touchCalibrating = false;
+  lastTouchX = -1;
+  if (weatherReady) {
+    drawCurrentPage();
+  } else {
+    drawStatusScreen("啟動中", nullptr);
+  }
+  Serial.println("[Touch] done from web");
 }
 
 static int forecastLineCount = 0;
-static int forecastPage = 0;
-static int forecastPageCount = 1;
-static String forecastLines[24];
-static uint32_t lastForecastPageMs = 0;
+static String forecastLines[32];
+static String lastWrappedForecast;
+
+// 快取各字型行高，避免每次排版都輪流 SD loadFont
+static int cachedMainH = 0;
+static int cachedSmallH = 0;
+static int cachedDetailH = 0;
+static int cachedLargeH = 0;
+
+void cacheFontHeights() {
+  fontUseMain();
+  cachedMainH = fontLineHeight();
+  fontUseSmall();
+  cachedSmallH = fontLineHeight();
+  fontUseDetail();
+  cachedDetailH = fontLineHeight();
+  fontUseLarge();
+  cachedLargeH = fontLineHeight();
+  fontUseMain();
+}
+
+WeatherLayout calcWeatherLayout() {
+  WeatherLayout layout{};
+
+  if (cachedMainH <= 0) {
+    cacheFontHeights();
+  }
+  const int mainH = cachedMainH;
+  const int detailH = cachedDetailH;
+  const int largeH = cachedLargeH;
+
+  layout.mainLineHeight = mainH;
+  layout.detailLineHeight = detailH;
+
+  const bool hasWarning = weather.warning.length() > 0;
+  layout.warningH = hasWarning ? mainH + 10 : 0;
+  layout.warningY = 0;
+
+  layout.contentTop = layout.warningH + 8;
+  layout.tempY = layout.contentTop;
+  layout.metricsY = layout.tempY + 4;
+
+  int metricsLines = 1;
+  if (!isnan(weather.tempMin)) {
+    metricsLines++;
+  }
+  if (!isnan(weather.tempMax)) {
+    metricsLines++;
+  }
+  const int metricsBottom = layout.metricsY + metricsLines * (mainH + 2);
+  const int tempBottom = layout.tempY + largeH;
+  layout.forecastY = max(tempBottom, metricsBottom) + 10;
+  layout.updateY = SCREEN_H - detailH - 4;  // 頁尾 6pt
+
+  const int forecastArea = layout.updateY - layout.forecastY - 6;
+  layout.forecastLinesPerPage = max(1, forecastArea / detailH);
+  return layout;
+}
 
 bool weatherDisplayChanged(const WeatherData &before, const WeatherData &after) {
-  if (before.tempPlace != after.tempPlace) {
-    return true;
-  }
   if (isnan(before.temperature) != isnan(after.temperature)) {
     return true;
   }
@@ -126,22 +211,25 @@ bool weatherDisplayChanged(const WeatherData &before, const WeatherData &after) 
       fabsf(before.temperature - after.temperature) >= 0.1f) {
     return true;
   }
+  if (isnan(before.tempMin) != isnan(after.tempMin) ||
+      isnan(before.tempMax) != isnan(after.tempMax)) {
+    return true;
+  }
+  if (!isnan(before.tempMin) && !isnan(after.tempMin) &&
+      fabsf(before.tempMin - after.tempMin) >= 0.1f) {
+    return true;
+  }
+  if (!isnan(before.tempMax) && !isnan(after.tempMax) &&
+      fabsf(before.tempMax - after.tempMax) >= 0.1f) {
+    return true;
+  }
   if (before.humidity != after.humidity) {
-    return true;
-  }
-  if (isnan(before.rainfallMm) != isnan(after.rainfallMm)) {
-    return true;
-  }
-  if (!isnan(before.rainfallMm) && !isnan(after.rainfallMm) &&
-      fabsf(before.rainfallMm - after.rainfallMm) >= 0.1f) {
-    return true;
-  }
-  if (before.uvIndex != after.uvIndex) {
     return true;
   }
   if (before.forecast != after.forecast) {
     return true;
   }
+  // 略過 updateLabel 單獨變更，避免每輪刷新整屏閃爍
   if (before.warning != after.warning) {
     return true;
   }
@@ -151,19 +239,19 @@ bool weatherDisplayChanged(const WeatherData &before, const WeatherData &after) 
 bool updateWeatherDisplay() {
   const bool wasReady = weatherReady;
   const WeatherData previous = weather;
-  const String previousForecast = weather.forecast;
 
   if (!fetchWeather()) {
     return false;
   }
 
-  if (previousForecast != weather.forecast) {
-    forecastPage = 0;
-  }
-
   if (!wasReady || weatherDisplayChanged(previous, weather)) {
-    drawWeatherScreen();
+    if (!touchTestMode) {
+      drawWeatherScreen();
+    }
     Serial.println("[Weather] data changed, redraw");
+  } else if (!touchTestMode && previous.updateLabel != weather.updateLabel) {
+    drawFooterOnly();
+    Serial.println("[Weather] footer only");
   } else {
     Serial.println("[Weather] unchanged, skip redraw");
   }
@@ -187,13 +275,12 @@ int wrapTextToLines(const String &text, String *lines, int maxLines, int maxWidt
 }
 
 void rebuildForecastLines() {
-  forecastLineCount = wrapTextToLines(weather.forecast, forecastLines, 24, RIGHT_W);
-  const WeatherLayout layout = calcWeatherLayout();
-  const int linesPerPage = layout.forecastLinesPerPage;
-  forecastPageCount = max(1, (forecastLineCount + linesPerPage - 1) / linesPerPage);
-  if (forecastPage >= forecastPageCount) {
-    forecastPage = 0;
+  if (weather.forecast == lastWrappedForecast && forecastLineCount > 0) {
+    return;
   }
+  fontUseDetail();
+  forecastLineCount = wrapTextToLines(weather.forecast, forecastLines, 32, CONTENT_W);
+  lastWrappedForecast = weather.forecast;
 }
 
 void drawWrappedText(const String &text, int x, int y, int maxWidth, int lineHeightPx,
@@ -206,27 +293,6 @@ void drawWrappedText(const String &text, int x, int y, int maxWidth, int lineHei
   }
 }
 
-const char *wifiStatusText(wl_status_t status) {
-  switch (status) {
-    case WL_IDLE_STATUS:
-      return "IDLE";
-    case WL_NO_SSID_AVAIL:
-      return "NO_SSID";
-    case WL_SCAN_COMPLETED:
-      return "SCAN_DONE";
-    case WL_CONNECTED:
-      return "CONNECTED";
-    case WL_CONNECT_FAILED:
-      return "CONNECT_FAILED";
-    case WL_CONNECTION_LOST:
-      return "LOST";
-    case WL_DISCONNECTED:
-      return "DISCONNECTED";
-    default:
-      return "UNKNOWN";
-  }
-}
-
 void initDisplay() {
   pinMode(TFT_BL, OUTPUT);
   digitalWrite(TFT_BL, TFT_BACKLIGHT_ON);
@@ -234,113 +300,35 @@ void initDisplay() {
   tft.setRotation(TFT_ROTATION);
   tft.fillScreen(TFT_BLACK);
   initFontSystem(tft, u8g2, TEXT_FONT);
-  lineHeight = fontLineHeight();
+  cacheFontHeights();
+  lineHeight = cachedMainH;
+  smallLineHeight = cachedSmallH;
   if (usingSdFont()) {
-    Serial.println("[Font] Using SD PingFang TC");
+    Serial.println("[Font] Using SD PingFang TC tiers");
+    Serial.printf("[Font] detail=%d small=%d large=%d\n", usingSdDetailFont() ? 1 : 0,
+                  usingSdSmallFont() ? 1 : 0, usingSdLargeFont() ? 1 : 0);
   } else {
     Serial.println("[Font] Using built-in fallback font");
   }
 }
 
-static int lastScanCount = -1;
+void onWifiPortalStatus(const char *title, const char *detail) {
+  drawStatusScreen(title, detail);
+}
 
-bool isNetworkVisible(const char *ssid) {
-  if (lastScanCount <= 0) {
+// 先試 NVS 已存憑證；失敗則開 AP 網頁設定直到連上
+bool ensureWifiConnected() {
+  if (wifiIsConnected()) {
     return true;
   }
 
-  for (int i = 0; i < lastScanCount; i++) {
-    if (WiFi.SSID(i) == ssid) {
-      return true;
-    }
-  }
-  return false;
-}
-
-void refreshWifiScan() {
-  WiFi.scanDelete();
-  lastScanCount = WiFi.scanNetworks(false, false);
-  Serial.printf("[Wi-Fi] scan found %d networks\n", lastScanCount);
-}
-
-bool tryConnectNetwork(int index) {
-  const WiFiNetwork &network = WIFI_NETWORKS[index];
-
-  if (!isNetworkVisible(network.ssid)) {
-    Serial.printf("[Wi-Fi %d] skip %s (not in scan)\n", index + 1, network.ssid);
-    return false;
+  drawStatusScreen("啟動中", "正在連接 Wi-Fi…");
+  if (wifiTryConnect()) {
+    return true;
   }
 
-  Serial.printf("[Wi-Fi %d] Connecting to %s\n", index + 1, network.ssid);
-
-  WiFi.disconnect(false);
-  delay(100);
-  WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);
-  WiFi.begin(network.ssid, network.password);
-
-  const uint32_t startMs = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startMs < WIFI_CONNECT_TIMEOUT_MS) {
-    const wl_status_t status = WiFi.status();
-    if (status == WL_NO_SSID_AVAIL && millis() - startMs > WIFI_NO_SSID_FAIL_MS) {
-      Serial.printf("[Wi-Fi %d] abort: NO_SSID\n", index + 1);
-      break;
-    }
-    if (status == WL_CONNECT_FAILED && millis() - startMs > WIFI_NO_SSID_FAIL_MS) {
-      Serial.printf("[Wi-Fi %d] abort: CONNECT_FAILED\n", index + 1);
-      break;
-    }
-    delay(250);
-    Serial.print(".");
-    yield();
-  }
-  Serial.println();
-
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.printf("[Wi-Fi %d] failed: %s (%d)\n", index + 1,
-                  wifiStatusText(WiFi.status()), WiFi.status());
-    return false;
-  }
-
-  preferredNetworkIndex = index;
-  Serial.printf("[Wi-Fi %d] IP: %s\n", index + 1, WiFi.localIP().toString().c_str());
-  return true;
-}
-
-bool connectWiFi() {
-  refreshWifiScan();
-
-  int tryOrder[WIFI_NETWORK_COUNT];
-  size_t tryCount = 0;
-
-  if (preferredNetworkIndex >= 0 && preferredNetworkIndex < (int)WIFI_NETWORK_COUNT &&
-      isConfiguredNetwork(WIFI_NETWORKS[preferredNetworkIndex])) {
-    tryOrder[tryCount++] = preferredNetworkIndex;
-  }
-
-  for (size_t i = 0; i < WIFI_NETWORK_COUNT; i++) {
-    if (!isConfiguredNetwork(WIFI_NETWORKS[i])) {
-      continue;
-    }
-    bool alreadyListed = false;
-    for (size_t j = 0; j < tryCount; j++) {
-      if (tryOrder[j] == (int)i) {
-        alreadyListed = true;
-        break;
-      }
-    }
-    if (!alreadyListed) {
-      tryOrder[tryCount++] = i;
-    }
-  }
-
-  for (size_t i = 0; i < tryCount; i++) {
-    if (tryConnectNetwork(tryOrder[i])) {
-      return true;
-    }
-  }
-
-  return false;
+  Serial.println("[Wi-Fi] starting config portal");
+  return wifiStartConfigPortal(onWifiPortalStatus);
 }
 
 String buildApiUrl(const char *dataType) {
@@ -369,16 +357,16 @@ String httpGet(const String &url) {
   return payload;
 }
 
-bool pickDistrictTemperature(JsonObject temperatureRoot, String &placeOut, float &valueOut) {
+bool pickDistrictTemperature(JsonObject temperatureRoot, float &valueOut) {
   JsonArray data = temperatureRoot["data"].as<JsonArray>();
   if (data.isNull()) {
     return false;
   }
 
+  const char *wanted = currentDistrict().tempStation;
   for (JsonObject item : data) {
     const char *place = item["place"] | "";
-    if (strcmp(place, WEATHER_TEMP_STATION) == 0) {
-      placeOut = WEATHER_DISTRICT_LABEL;
+    if (strcmp(place, wanted) == 0) {
       valueOut = item["value"] | NAN;
       return !isnan(valueOut);
     }
@@ -388,25 +376,10 @@ bool pickDistrictTemperature(JsonObject temperatureRoot, String &placeOut, float
   if (first.isNull()) {
     return false;
   }
-  placeOut = WEATHER_DISTRICT_LABEL;
+  const char *fallback = first["place"] | "?";
+  Serial.printf("[Weather] station '%s' missing, fallback '%s'\n", wanted, fallback);
   valueOut = first["value"] | NAN;
   return !isnan(valueOut);
-}
-
-bool pickDistrictRainfall(JsonObject rainfallRoot, float &maxOut) {
-  JsonArray data = rainfallRoot["data"].as<JsonArray>();
-  if (data.isNull()) {
-    return false;
-  }
-
-  for (JsonObject item : data) {
-    const char *place = item["place"] | "";
-    if (strcmp(place, WEATHER_RAINFALL_PLACE) == 0) {
-      maxOut = item["max"] | NAN;
-      return !isnan(maxOut);
-    }
-  }
-  return false;
 }
 
 bool pickHumidity(JsonObject humidityRoot, int &valueOut) {
@@ -427,161 +400,283 @@ bool pickHumidity(JsonObject humidityRoot, int &valueOut) {
   return valueOut >= 0;
 }
 
-String joinActiveWarningNames(JsonObject warnsumRoot) {
-  String result;
-  for (JsonPair kv : warnsumRoot) {
-    JsonObject item = kv.value().as<JsonObject>();
-    if (item.isNull()) {
-      continue;
-    }
-    const char *name = item["name"] | "";
-    if (name[0] == '\0') {
-      continue;
-    }
-    if (result.length() > 0) {
-      result += " ";
-    }
-    result += name;
+String formatUpdateLabel(const char *isoTime) {
+  // 2026-07-16T09:45:00+08:00
+  if (isoTime == nullptr || strlen(isoTime) < 16) {
+    return "";
   }
-  return result;
+  const int hour = (isoTime[11] - '0') * 10 + (isoTime[12] - '0');
+  const int minute = (isoTime[14] - '0') * 10 + (isoTime[15] - '0');
+  const char *period = hour < 12 ? "上午" : "下午";
+  int hour12 = hour % 12;
+  if (hour12 == 0) {
+    hour12 = 12;
+  }
+  char buf[40];
+  snprintf(buf, sizeof(buf), "天文台更新 %s%d:%02d", period, hour12, minute);
+  return String(buf);
 }
 
-const char *uvLevelText(int uv) {
-  if (uv < 0) {
-    return "--";
-  }
-  if (uv <= 2) {
-    return "低";
-  }
-  if (uv <= 5) {
-    return "中等";
-  }
-  if (uv <= 7) {
-    return "高";
-  }
-  if (uv <= 10) {
-    return "甚高";
-  }
-  return "極高";
-}
-
-void drawWeatherLeftPanel(const WeatherLayout &layout) {
-  const int x = PAD_X;
-  int y = layout.contentTop;
-
+void drawHeaderAndTemp(const WeatherLayout &layout) {
   char tempLine[16];
-  snprintf(tempLine, sizeof(tempLine), "%.0f°C", weather.temperature);
-  fontDrawText(tft, x, y, tempLine, TFT_YELLOW, COLOR_BG);
-  y += layout.lineHeight + 2;
-
-  char placeLine[32];
-  snprintf(placeLine, sizeof(placeLine), "%s", weather.tempPlace.c_str());
-  fontDrawText(tft, x, y, placeLine, TFT_WHITE, COLOR_BG);
-  y += layout.lineHeight + 2;
-
-  char humidityLine[20];
-  snprintf(humidityLine, sizeof(humidityLine), "濕 %d%%", weather.humidity);
-  fontDrawText(tft, x, y, humidityLine, TFT_WHITE, COLOR_BG);
-  y += layout.lineHeight + 2;
-
-  if (!isnan(weather.rainfallMm)) {
-    char rainLine[20];
-    snprintf(rainLine, sizeof(rainLine), "雨 %.0fmm", weather.rainfallMm);
-    fontDrawText(tft, x, y, rainLine, TFT_WHITE, COLOR_BG);
-    y += layout.lineHeight + 2;
+  if (isnan(weather.temperature)) {
+    snprintf(tempLine, sizeof(tempLine), "--°C");
+  } else {
+    snprintf(tempLine, sizeof(tempLine), "%.0f°C", weather.temperature);
   }
 
-  char uvLine[24];
-  snprintf(uvLine, sizeof(uvLine), "UV%d %s", weather.uvIndex, uvLevelText(weather.uvIndex));
-  fontDrawText(tft, x, y, uvLine, TFT_WHITE, COLOR_BG);
+  fontUseLarge();
+  fontDrawText(tft, PAD_X, layout.tempY, tempLine, COLOR_TEXT, COLOR_BG);
+  const int metricsX = min(PAD_X + fontTextWidth(tempLine) + 10, SCREEN_W - 100);
+  fontUseMain();
 
-  tft.drawFastVLine(RIGHT_X - 3, layout.contentTop, layout.footerY - layout.contentTop,
-                    COLOR_DIVIDER);
+  int my = layout.metricsY;
+  char line[24];
+
+  if (!isnan(weather.tempMin)) {
+    snprintf(line, sizeof(line), "低%.0f°", weather.tempMin);
+    fontDrawText(tft, metricsX, my, line, COLOR_TEMP_LOW, COLOR_BG);
+    my += layout.mainLineHeight + 2;
+  }
+  if (!isnan(weather.tempMax)) {
+    snprintf(line, sizeof(line), "高%.0f°", weather.tempMax);
+    fontDrawText(tft, metricsX, my, line, COLOR_TEMP_HIGH, COLOR_BG);
+    my += layout.mainLineHeight + 2;
+  }
+  if (weather.humidity >= 0) {
+    snprintf(line, sizeof(line), "濕度 %d%%", weather.humidity);
+  } else {
+    snprintf(line, sizeof(line), "濕度 --%%");
+  }
+  fontDrawText(tft, metricsX, my, line, COLOR_TEXT, COLOR_BG);
 }
 
-void drawWeatherForecast(const WeatherLayout &layout) {
-  fontDrawText(tft, RIGHT_X, layout.forecastLabelY, "天氣預報", COLOR_LABEL, COLOR_BG);
-
-  if (forecastPageCount > 1) {
-    char pageInfo[12];
-    snprintf(pageInfo, sizeof(pageInfo), "%d/%d", forecastPage + 1, forecastPageCount);
-    fontDrawTextRight(tft, SCREEN_W - PAD_X, layout.forecastLabelY, pageInfo, COLOR_MUTED,
-                      COLOR_BG);
+void drawFooter(const WeatherLayout &layout) {
+  fontUseDetail();
+  char footer[72];
+  footer[0] = '\0';
+  if (WiFi.status() == WL_CONNECTED && weather.updateLabel.length() > 0) {
+    snprintf(footer, sizeof(footer), "%s | %s", WiFi.localIP().toString().c_str(),
+             weather.updateLabel.c_str());
+  } else if (weather.updateLabel.length() > 0) {
+    snprintf(footer, sizeof(footer), "%s", weather.updateLabel.c_str());
+  } else if (WiFi.status() == WL_CONNECTED) {
+    snprintf(footer, sizeof(footer), "%s", WiFi.localIP().toString().c_str());
   }
+  if (footer[0] != '\0') {
+    fontDrawTextRight(tft, SCREEN_W - PAD_X, layout.updateY, footer, COLOR_MUTED, COLOR_BG);
+  }
+}
 
-  const int startLine = forecastPage * layout.forecastLinesPerPage;
-  for (int i = 0; i < layout.forecastLinesPerPage; i++) {
-    const int lineIndex = startLine + i;
-    if (lineIndex >= forecastLineCount) {
-      break;
+void drawFooterOnly() {
+  if (!weatherReady || touchTestMode) {
+    return;
+  }
+  const WeatherLayout layout = calcWeatherLayout();
+  const int top = max(0, layout.updateY - 2);
+  tft.fillRect(0, top, SCREEN_W, SCREEN_H - top, COLOR_BG);
+  drawFooter(layout);
+}
+
+void drawForecastBlock(const WeatherLayout &layout) {
+  fontUseDetail();
+
+  const int maxLines = layout.forecastLinesPerPage;
+  const bool truncated = forecastLineCount > maxLines;
+  const int drawLines = truncated ? maxLines : forecastLineCount;
+  const int ellipsisW = fontTextWidth("…");
+
+  for (int i = 0; i < drawLines; i++) {
+    const char *src = forecastLines[i].c_str();
+    char line[96];
+    strncpy(line, src, sizeof(line) - 1);
+    line[sizeof(line) - 1] = '\0';
+
+    if (truncated && i == drawLines - 1) {
+      while (line[0] != '\0' && fontTextWidth(line) + ellipsisW > CONTENT_W) {
+        int prev = (int)strlen(line) - 1;
+        while (prev > 0 && (line[prev] & 0xC0) == 0x80) {
+          prev--;
+        }
+        if (prev <= 0) {
+          line[0] = '\0';
+          break;
+        }
+        line[prev] = '\0';
+      }
+      const size_t n = strlen(line);
+      if (n + 3 < sizeof(line)) {
+        // UTF-8 ellipsis …
+        line[n] = (char)0xE2;
+        line[n + 1] = (char)0x80;
+        line[n + 2] = (char)0xA6;
+        line[n + 3] = '\0';
+      }
     }
-    fontDrawText(tft, RIGHT_X, layout.forecastY + i * layout.lineHeight,
-                 forecastLines[lineIndex].c_str(), TFT_WHITE, COLOR_BG);
+    fontDrawText(tft, PAD_X, layout.forecastY + i * layout.detailLineHeight, line, COLOR_TEXT,
+                 COLOR_BG);
   }
+
+  drawFooter(layout);
 }
 
 void drawWeatherWarning(const WeatherLayout &layout) {
-  if (weather.warning.length() == 0) {
+  if (weather.warning.length() == 0 || layout.warningH <= 0) {
     return;
   }
 
-  tft.fillRect(0, layout.warningY, SCREEN_W, layout.warningH, TFT_MAROON);
-  drawWrappedText(weather.warning, PAD_X, layout.warningY + 3, SCREEN_W - PAD_X * 2,
-                  layout.lineHeight, TFT_WHITE, 1, TFT_MAROON);
+  fontUseMain();
+  tft.fillRect(0, layout.warningY, SCREEN_W, layout.warningH, COLOR_WARN_BG);
+
+  const int textW = fontTextWidth(weather.warning.c_str());
+  const int textX = max(PAD_X, (SCREEN_W - textW) / 2);
+  const int textY = layout.warningY + (layout.warningH - layout.mainLineHeight) / 2;
+  fontDrawText(tft, textX, textY, weather.warning.c_str(), COLOR_WARN_FG, COLOR_WARN_BG);
 }
 
 bool fetchWeather() {
-  weather = WeatherData{};
+  WeatherData next;
 
   const String currentPayload = httpGet(buildApiUrl("rhrread"));
   if (currentPayload.isEmpty()) {
+    Serial.println("[Weather] rhrread empty");
     return false;
   }
 
   JsonDocument currentDoc;
   const DeserializationError err = deserializeJson(currentDoc, currentPayload);
   if (err) {
-    Serial.printf("JSON error: %s\n", err.c_str());
+    Serial.printf("[Weather] JSON error: %s\n", err.c_str());
     return false;
   }
 
-  if (!pickDistrictTemperature(currentDoc["temperature"].as<JsonObject>(), weather.tempPlace,
-                               weather.temperature)) {
+  if (!pickDistrictTemperature(currentDoc["temperature"].as<JsonObject>(), next.temperature)) {
+    Serial.println("[Weather] temperature station missing");
     return false;
   }
 
-  pickHumidity(currentDoc["humidity"].as<JsonObject>(), weather.humidity);
-  pickDistrictRainfall(currentDoc["rainfall"].as<JsonObject>(), weather.rainfallMm);
+  pickHumidity(currentDoc["humidity"].as<JsonObject>(), next.humidity);
 
-  JsonArray uvData = currentDoc["uvindex"]["data"].as<JsonArray>();
-  if (!uvData.isNull() && uvData.size() > 0) {
-    weather.uvIndex = uvData[0]["value"] | -1;
-  }
+  const char *rhrUpdate = currentDoc["updateTime"] | "";
+  next.updateLabel = formatUpdateLabel(rhrUpdate);
 
   const String warnsumPayload = httpGet(buildApiUrl("warnsum"));
   if (!warnsumPayload.isEmpty()) {
     JsonDocument warnsumDoc;
     const DeserializationError warnsumErr = deserializeJson(warnsumDoc, warnsumPayload);
     if (!warnsumErr) {
-      weather.warning = joinActiveWarningNames(warnsumDoc.as<JsonObject>());
+      next.warning = joinActiveWarningNames(warnsumDoc.as<JsonObject>());
     }
   }
 
   const String forecastPayload = httpGet(buildApiUrl("flw"));
   if (!forecastPayload.isEmpty()) {
     JsonDocument forecastDoc;
-    const DeserializationError err = deserializeJson(forecastDoc, forecastPayload);
-    if (!err) {
-      weather.forecast = forecastDoc["forecastDesc"] | "";
+    const DeserializationError forecastErr = deserializeJson(forecastDoc, forecastPayload);
+    if (!forecastErr) {
+      next.forecast = forecastDoc["forecastDesc"] | "";
+      const char *flwUpdate = forecastDoc["updateTime"] | "";
+      const String flwLabel = formatUpdateLabel(flwUpdate);
+      if (flwLabel.length() > 0) {
+        next.updateLabel = flwLabel;
+      }
     }
   }
 
-  if (weather.forecast.isEmpty()) {
-    weather.forecast = "暫時無法取得本港天氣預測。";
+  if (next.forecast.isEmpty()) {
+    next.forecast = "暫時無法取得本港天氣預測。";
   }
 
+  const String fndPayload = httpGet(buildApiUrl("fnd"));
+  if (!fndPayload.isEmpty()) {
+    JsonDocument fndDoc;
+    const DeserializationError fndErr = deserializeJson(fndDoc, fndPayload);
+    if (!fndErr) {
+      JsonArray days = fndDoc["weatherForecast"].as<JsonArray>();
+      if (!days.isNull() && days.size() > 0) {
+        JsonObject day0 = days[0];
+        next.tempMin = day0["forecastMintemp"]["value"] | NAN;
+        next.tempMax = day0["forecastMaxtemp"]["value"] | NAN;
+      }
+    }
+  }
+
+  weather = next;
   weatherReady = true;
   return true;
+}
+
+void drawStatusScreen(const char *title, const char *detail) {
+  tft.fillScreen(COLOR_BG);
+  fontUseMain();
+
+  const int titleW = fontTextWidth(title);
+  const int titleX = max(PAD_X, (SCREEN_W - titleW) / 2);
+  const int titleY = SCREEN_H / 2 - lineHeight;
+  fontDrawText(tft, titleX, titleY, title, COLOR_TEXT, COLOR_BG);
+
+  if (detail != nullptr && detail[0] != '\0') {
+    fontUseSmall();
+    drawWrappedText(detail, PAD_X, titleY + lineHeight + 10, CONTENT_W, smallLineHeight,
+                    COLOR_MUTED, 4, COLOR_BG);
+    fontUseMain();
+  }
+}
+
+void drawTouchMarker(int16_t x, int16_t y) {
+  tft.fillCircle(x, y, 8, TFT_YELLOW);
+  tft.drawCircle(x, y, 12, TFT_WHITE);
+  tft.drawFastHLine(x - 18, y, 36, TFT_YELLOW);
+  tft.drawFastVLine(x, y - 18, 36, TFT_YELLOW);
+
+  fontUseSmall();
+  char buf[48];
+  snprintf(buf, sizeof(buf), "觸控 %d,%d", x, y);
+  tft.fillRect(0, 0, SCREEN_W, smallLineHeight + 8, COLOR_BG);
+  fontDrawText(tft, PAD_X, 4, buf, TFT_YELLOW, COLOR_BG);
+  fontUseMain();
+}
+
+void drawTouchTestScreen() {
+  tft.fillScreen(COLOR_BG);
+  fontUseMain();
+
+  if (touchCalibrating) {
+    const char *title = "觸控校準";
+    fontDrawText(tft, max(PAD_X, (SCREEN_W - fontTextWidth(title)) / 2), 8, title, COLOR_TEXT,
+                 COLOR_BG);
+    fontUseSmall();
+    drawWrappedText(touchCalPrompt(), PAD_X, 8 + lineHeight + 6, CONTENT_W, smallLineHeight,
+                    COLOR_MUTED, 2, COLOR_BG);
+
+    int16_t tx, ty;
+    touchCalTarget(touchCalStep(), tx, ty);
+    tft.fillCircle(tx, ty, 10, TFT_RED);
+    tft.drawCircle(tx, ty, 14, TFT_WHITE);
+    tft.drawFastHLine(tx - 22, ty, 44, TFT_RED);
+    tft.drawFastVLine(tx, ty - 22, 44, TFT_RED);
+
+    char stepBuf[24];
+    snprintf(stepBuf, sizeof(stepBuf), "%d / %d", touchCalStep() + 1, TOUCH_CAL_POINTS);
+    fontDrawText(tft, PAD_X, SCREEN_H - smallLineHeight - 8, stepBuf, COLOR_MUTED, COLOR_BG);
+    fontUseMain();
+    return;
+  }
+
+  const char *title = "觸控驗證";
+  fontDrawText(tft, max(PAD_X, (SCREEN_W - fontTextWidth(title)) / 2), 8, title, COLOR_TEXT,
+               COLOR_BG);
+  fontUseSmall();
+  drawWrappedText("黃點應對準手指。連點右下角3次回天氣。", PAD_X, 8 + lineHeight + 6, CONTENT_W,
+                  smallLineHeight, COLOR_MUTED, 3, COLOR_BG);
+
+  const int r = 4;
+  tft.fillCircle(20, 20, r, COLOR_MUTED);
+  tft.fillCircle(SCREEN_W - 21, 20, r, COLOR_MUTED);
+  tft.fillCircle(20, SCREEN_H - 21, r, COLOR_MUTED);
+  tft.fillCircle(SCREEN_W - 21, SCREEN_H - 21, r, COLOR_MUTED);
+  tft.fillCircle(SCREEN_W / 2, SCREEN_H / 2, r, COLOR_MUTED);
+  fontUseMain();
 }
 
 void drawWeatherScreen() {
@@ -589,9 +684,65 @@ void drawWeatherScreen() {
   const WeatherLayout layout = calcWeatherLayout();
 
   tft.fillScreen(COLOR_BG);
-  drawWeatherLeftPanel(layout);
-  drawWeatherForecast(layout);
+  drawHeaderAndTemp(layout);
+  drawForecastBlock(layout);
   drawWeatherWarning(layout);
+}
+
+void drawCurrentPage() {
+  if (touchTestMode) {
+    drawTouchTestScreen();
+    if (!touchCalibrating && lastTouchX >= 0) {
+      drawTouchMarker(lastTouchX, lastTouchY);
+    }
+  } else {
+    drawWeatherScreen();
+  }
+}
+
+bool handleTouch() {
+  if (!touchTestMode) {
+    return false;  // 天氣畫面無觸控操作，略過 SoftSPI 取樣
+  }
+  if (millis() - lastTouchMs < 320) {
+    return false;
+  }
+  int16_t x, y;
+  if (!touchReadScreen(x, y)) {
+    return false;
+  }
+  lastTouchMs = millis();
+
+  if (touchCalibrating) {
+    if (touchCalAddSample()) {
+      touchWaitRelease();
+      if (touchCalStep() >= TOUCH_CAL_POINTS) {
+        touchCalibrating = false;
+        lastTouchX = -1;
+      }
+      drawTouchTestScreen();
+      return true;
+    }
+    return false;
+  }
+
+  Serial.printf("[Touch] hit=%d,%d\n", x, y);
+  lastTouchX = x;
+  lastTouchY = y;
+  drawTouchTestScreen();
+  drawTouchMarker(x, y);
+  if (x > SCREEN_W - 50 && y > SCREEN_H - 50) {
+    static uint8_t cornerHits = 0;
+    cornerHits++;
+    if (cornerHits >= 3) {
+      cornerHits = 0;
+      touchTestMode = false;
+      lastTouchX = -1;
+      drawCurrentPage();
+    }
+  }
+  touchWaitRelease();
+  return true;
 }
 
 void setup() {
@@ -600,27 +751,71 @@ void setup() {
   Serial.println();
   Serial.println("ESP32 HKO Weather - boot");
 
+  loadDistrictPreference();
+  wifiSetDistrictChangedCallback(onDistrictChangedFromWeb);
+  wifiSetTouchCalStartCallback(onTouchCalStartFromWeb);
+  wifiSetTouchCalResetCallback(onTouchCalResetFromWeb);
+  wifiSetTouchCalDoneCallback(onTouchCalDoneFromWeb);
   initDisplay();
-  tft.fillScreen(COLOR_BG);
+  touchBegin();
+  drawStatusScreen("啟動中", nullptr);
 
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
 
-  if (connectWiFi() && updateWeatherDisplay()) {
+  if (!ensureWifiConnected()) {
+    Serial.println("[Wi-Fi] portal ended without connection");
+    drawStatusScreen("Wi-Fi連接失敗", "請重新開機再設定。");
+    return;
+  }
+
+  // Portal 連線流程可能已寫入新地區
+  loadDistrictPreference();
+  wifiStartSettingsServer();
+  drawStatusScreen("啟動中", "正在取得天氣資料…");
+
+  if (!updateWeatherDisplay()) {
+    Serial.println("[Weather] boot fetch failed");
+    drawStatusScreen("天氣資料失敗", "已連線，稍後自動重試天文台 API。");
+  } else {
     lastWeatherFetchMs = millis();
+  }
+
+  touchTestMode = false;
+  touchCalibrating = false;
+  if (weatherReady) {
+    drawCurrentPage();
   }
 }
 
 void loop() {
+  wifiHandleClient();
+
+  if (handleTouch()) {
+    return;
+  }
+
+  if (touchTestMode) {
+    return;
+  }
+
   if (WiFi.status() != WL_CONNECTED) {
     static uint32_t lastRetryMs = 0;
     if (millis() - lastRetryMs >= WIFI_RETRY_INTERVAL_MS) {
       lastRetryMs = millis();
-      Serial.println("[Wi-Fi] background reconnect");
-      if (connectWiFi()) {
+      Serial.println("[Wi-Fi] background reconnect / portal");
+      if (!weatherReady) {
+        drawStatusScreen("啟動中", "正在重新連線…");
+      }
+      if (ensureWifiConnected()) {
+        wifiStartSettingsServer();
         if (updateWeatherDisplay()) {
           lastWeatherFetchMs = millis();
+        } else if (!weatherReady) {
+          drawStatusScreen("天氣資料失敗", "已連線，稍後自動重試天文台 API。");
         }
+      } else if (!weatherReady) {
+        drawStatusScreen("Wi-Fi連接失敗", "請連接 esp32-weather 設定網路。");
       }
     }
     return;
@@ -628,14 +823,8 @@ void loop() {
 
   if (millis() - lastWeatherFetchMs >= WEATHER_REFRESH_MS) {
     lastWeatherFetchMs = millis();
-    updateWeatherDisplay();
-    return;
-  }
-
-  if (weatherReady && forecastPageCount > 1 &&
-      millis() - lastForecastPageMs >= 8000) {
-    lastForecastPageMs = millis();
-    forecastPage = (forecastPage + 1) % forecastPageCount;
-    drawWeatherScreen();
+    if (!updateWeatherDisplay() && !weatherReady) {
+      drawStatusScreen("天氣資料失敗", "已連線，稍後自動重試天文台 API。");
+    }
   }
 }

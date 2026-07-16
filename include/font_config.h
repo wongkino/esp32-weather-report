@@ -6,16 +6,25 @@
 #define SD_MOSI 23
 #define SD_CS 5
 
-// SD 卡根目錄放置：PFTC12.vlw（由 Mac 蘋方-繁 PingFang TC 12pt 轉換）
+// 四層字型（Processing 一次產出 PFTC6 / 10 / 12 / 18）
+// 詳：預報內文／頁尾；小：狀態說明；中：指標／警告；大：溫度
+#define SD_FONT_DETAIL_FILE "/PFTC6.vlw"
+#define SD_FONT_DETAIL_NAME "PFTC6"
+
+#define SD_FONT_SMALL_FILE "/PFTC10.vlw"
+#define SD_FONT_SMALL_NAME "PFTC10"
+
 #define SD_FONT_FILE "/PFTC12.vlw"
 #define SD_FONT_NAME "PFTC12"
 
-// VLW smooth fonts load glyphs into RAM; keep file small (HKO weather subset).
-#define SD_FONT_MAX_BYTES (4 * 1024 * 1024)
+#define SD_FONT_LARGE_FILE "/PFTC18.vlw"
+#define SD_FONT_LARGE_NAME "PFTC18"
 
-// Mac 製作 VLW 步驟：
-// 1. python3 tools/generate_hko_font_codes.py   # 更新天文台 + 常用字
-//    可編輯 tools/common_traditional_chars.txt 新增字元
-// 2. Cmd+R Run（已預設 PingFang TC、12pt、PFTC12.vlw）
-// 3. 確認 PFTC12.vlw 約 150KB~800KB（勿用 19MB 全字庫）
-// 4. 複製到 microSD 卡根目錄，插入 CYD
+// VLW smooth fonts load glyphs into RAM; keep file small (HKO weather subset).
+// 超過約 1MB 易造成 Guru Meditation；同一時間只載入一顆
+#define SD_FONT_MAX_BYTES (1024 * 1024)
+
+// Mac 製作：
+// 1. python3 tools/generate_hko_font_codes.py
+// 2. Processing Run Create_font.pde（6=擴充常用字，10/12=精簡，18=僅溫度數字）
+// 3. 複製 PFTC6/10/12/18.vlw 到 microSD 根目錄
