@@ -4,6 +4,16 @@ ESP32-2432S028（Cheap Yellow Display）直屏天氣顯示板，從香港天文�
 
 **GitHub：** https://github.com/wongkino/esp32-weather-report
 
+## 文件導覽
+
+- 使用者快速開始：本頁
+- 開發者操作手冊：[`docs/development.md`](docs/development.md)
+- 架構說明：[`docs/architecture.md`](docs/architecture.md)
+- 字型與字表說明：[`docs/font-workflow.md`](docs/font-workflow.md)
+- 工具目錄說明：[`tools/README.md`](tools/README.md)
+- AI 協作指引：[`agent.md`](agent.md)
+- 多 Agent 協作規範：[`docs/agents.md`](docs/agents.md)
+
 ## 功能
 
 - 分區即時溫度（網頁選擇 18 區）
@@ -68,6 +78,8 @@ open -a Processing tools/Create_font/Create_font.pde
 ```
 
 > SD 卡須為 **FAT32**。字型檔約 150KB–800KB，勿使用 19MB 全字庫（會導致 ESP32 記憶體不足）。
+>
+> 更完整的字型維護流程見 [`docs/font-workflow.md`](docs/font-workflow.md)。
 
 ### 4. 編譯與燒錄
 
@@ -89,6 +101,11 @@ pio run -e cyd_st7789 -t upload
 ## 專案結構
 
 ```
+├── docs/
+│   ├── development.md        # 開發者操作手冊
+│   ├── architecture.md       # 模組分工與資料流說明
+│   ├── font-workflow.md      # 字型、字表與 VLW 維護流程
+│   └── agents.md             # 多 Agent 角色與工作流規範
 ├── src/
 │   ├── main.cpp              # 主程式：Wi-Fi、API、UI
 │   ├── districts.cpp         # 18 區與測站定義
@@ -106,13 +123,16 @@ pio run -e cyd_st7789 -t upload
 │   ├── wifi_portal.h
 │   └── touch_cyd.h
 ├── tools/
+│   ├── README.md             # 工具目錄與用途說明
 │   ├── generate_hko_font_codes.py
 │   ├── common_traditional_chars.txt
 │   └── Create_font/          # Processing 字型產生腳本
 ├── platformio.ini
-├── agent.md                  # AI Agent 開發約束（UI／字型）
+├── agent.md                  # AI 協作精簡入口
 └── README.md
 ```
+
+開發時建議先讀 [`docs/development.md`](docs/development.md)，再依需要查看架構與字型文件。
 ## API 資料來源
 
 | dataType | 用途 |

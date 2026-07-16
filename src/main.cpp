@@ -72,31 +72,25 @@ struct WeatherData {
 
 static WeatherData weather;
 
-bool fetchWeather();
-bool updateWeatherDisplay();
-void drawWeatherScreen();
-void drawCurrentPage();
-void drawFooterOnly();
-void drawStatusScreen(const char *title, const char *detail);
-void loadDistrictPreference();
-const WeatherDistrict &currentDistrict();
-void onDistrictChangedFromWeb(int index);
-void onTouchCalStartFromWeb();
-void onTouchCalResetFromWeb();
-void onTouchCalDoneFromWeb();
-void drawTouchTestScreen();
+static bool fetchWeather();
+static bool updateWeatherDisplay();
+static void drawWeatherScreen();
+static void drawCurrentPage();
+static void drawFooterOnly();
+static void drawStatusScreen(const char *title, const char *detail);
+static void drawTouchTestScreen();
 
-const WeatherDistrict &currentDistrict() {
+static const WeatherDistrict &currentDistrict() {
   districtIndex = clampDistrictIndex(districtIndex);
   return WEATHER_DISTRICTS[districtIndex];
 }
 
-void loadDistrictPreference() {
+static void loadDistrictPreference() {
   districtIndex = wifiLoadDistrictIndex();
   Serial.printf("[District] loaded idx=%d %s\n", districtIndex, currentDistrict().label);
 }
 
-void onDistrictChangedFromWeb(int index) {
+static void onDistrictChangedFromWeb(int index) {
   districtIndex = index;
   Serial.printf("[District] web change idx=%d %s\n", districtIndex, currentDistrict().label);
   if (WiFi.status() != WL_CONNECTED) {
@@ -110,7 +104,7 @@ void onDistrictChangedFromWeb(int index) {
   }
 }
 
-void onTouchCalStartFromWeb() {
+static void onTouchCalStartFromWeb() {
   touchTestMode = true;
   touchCalibrating = true;
   lastTouchX = -1;
@@ -119,7 +113,7 @@ void onTouchCalStartFromWeb() {
   Serial.println("[Touch] calibration started from web");
 }
 
-void onTouchCalResetFromWeb() {
+static void onTouchCalResetFromWeb() {
   touchCalClear();
   touchTestMode = false;
   touchCalibrating = false;
@@ -130,7 +124,7 @@ void onTouchCalResetFromWeb() {
   Serial.println("[Touch] reset to default from web");
 }
 
-void onTouchCalDoneFromWeb() {
+static void onTouchCalDoneFromWeb() {
   touchCalCancel();
   touchTestMode = false;
   touchCalibrating = false;
@@ -153,7 +147,7 @@ static int cachedSmallH = 0;
 static int cachedDetailH = 0;
 static int cachedLargeH = 0;
 
-void cacheFontHeights() {
+static void cacheFontHeights() {
   fontUseMain();
   cachedMainH = fontLineHeight();
   fontUseSmall();
@@ -165,7 +159,7 @@ void cacheFontHeights() {
   fontUseMain();
 }
 
-WeatherLayout calcWeatherLayout() {
+static WeatherLayout calcWeatherLayout() {
   WeatherLayout layout{};
 
   if (cachedMainH <= 0) {
@@ -203,7 +197,7 @@ WeatherLayout calcWeatherLayout() {
   return layout;
 }
 
-bool weatherDisplayChanged(const WeatherData &before, const WeatherData &after) {
+static bool weatherDisplayChanged(const WeatherData &before, const WeatherData &after) {
   if (isnan(before.temperature) != isnan(after.temperature)) {
     return true;
   }
@@ -236,7 +230,7 @@ bool weatherDisplayChanged(const WeatherData &before, const WeatherData &after) 
   return false;
 }
 
-bool updateWeatherDisplay() {
+static bool updateWeatherDisplay() {
   const bool wasReady = weatherReady;
   const WeatherData previous = weather;
 
@@ -258,23 +252,23 @@ bool updateWeatherDisplay() {
   return true;
 }
 
-int wrapTextToLines(const String &text, String *lines, int maxLines, int maxWidth) {
-  String remaining = text;
+static int wrapTextToLines(const String &text, String *lines, int maxLines, int maxWidth) {
   int count = 0;
+  int start = 0;
 
-  while (remaining.length() > 0 && count < maxLines) {
-    const int cut = fontUtf8WrapIndex(remaining, maxWidth);
-    if (cut <= 0) {
+  while (start < (int)text.length() && count < maxLines) {
+    const int cut = fontUtf8WrapIndex(text, start, maxWidth);
+    if (cut <= start) {
       break;
     }
-    lines[count++] = remaining.substring(0, cut);
-    remaining = remaining.substring(cut);
+    lines[count++] = text.substring(start, cut);
+    start = cut;
   }
 
   return count;
 }
 
-void rebuildForecastLines() {
+static void rebuildForecastLines() {
   if (weather.forecast == lastWrappedForecast && forecastLineCount > 0) {
     return;
   }
@@ -283,17 +277,21 @@ void rebuildForecastLines() {
   lastWrappedForecast = weather.forecast;
 }
 
-void drawWrappedText(const String &text, int x, int y, int maxWidth, int lineHeightPx,
-                     uint16_t color, int maxLines, uint16_t bg = TFT_BLACK) {
-  String lines[16];
-  const int count = wrapTextToLines(text, lines, maxLines, maxWidth);
-
-  for (int i = 0; i < count; i++) {
-    fontDrawText(tft, x, y + i * lineHeightPx, lines[i].c_str(), color, bg);
+static void drawWrappedText(const String &text, int x, int y, int maxWidth, int lineHeightPx,
+                            uint16_t color, int maxLines, uint16_t bg = TFT_BLACK) {
+  int start = 0;
+  for (int i = 0; i < maxLines && start < (int)text.length(); i++) {
+    const int cut = fontUtf8WrapIndex(text, start, maxWidth);
+    if (cut <= start) {
+      break;
+    }
+    const String line = text.substring(start, cut);
+    fontDrawText(tft, x, y + i * lineHeightPx, line.c_str(), color, bg);
+    start = cut;
   }
 }
 
-void initDisplay() {
+static void initDisplay() {
   pinMode(TFT_BL, OUTPUT);
   digitalWrite(TFT_BL, TFT_BACKLIGHT_ON);
   tft.init();
@@ -312,12 +310,12 @@ void initDisplay() {
   }
 }
 
-void onWifiPortalStatus(const char *title, const char *detail) {
+static void onWifiPortalStatus(const char *title, const char *detail) {
   drawStatusScreen(title, detail);
 }
 
 // 先試 NVS 已存憑證；失敗則開 AP 網頁設定直到連上
-bool ensureWifiConnected() {
+static bool ensureWifiConnected() {
   if (wifiIsConnected()) {
     return true;
   }
@@ -331,33 +329,39 @@ bool ensureWifiConnected() {
   return wifiStartConfigPortal(onWifiPortalStatus);
 }
 
-String buildApiUrl(const char *dataType) {
+static String buildApiUrl(const char *dataType) {
   return String(HKO_API_BASE) + "?dataType=" + dataType + "&lang=" + HKO_LANG;
 }
 
-String httpGet(const String &url) {
+static bool httpGetJson(const char *dataType, JsonDocument &doc) {
+  const String url = buildApiUrl(dataType);
   WiFiClientSecure client;
   client.setInsecure();
 
   HTTPClient http;
   http.setTimeout(WEATHER_HTTP_TIMEOUT_MS);
   if (!http.begin(client, url)) {
-    return "";
+    Serial.printf("[Weather] HTTP begin failed: %s\n", dataType);
+    return false;
   }
 
   const int code = http.GET();
-  String payload;
-  if (code == HTTP_CODE_OK) {
-    payload = http.getString();
-  } else {
-    Serial.printf("HTTP %d for %s\n", code, url.c_str());
+  if (code != HTTP_CODE_OK) {
+    Serial.printf("[Weather] HTTP %d for %s\n", code, url.c_str());
+    http.end();
+    return false;
   }
 
+  const DeserializationError err = deserializeJson(doc, http.getStream());
   http.end();
-  return payload;
+  if (err) {
+    Serial.printf("[Weather] JSON error for %s: %s\n", dataType, err.c_str());
+    return false;
+  }
+  return true;
 }
 
-bool pickDistrictTemperature(JsonObject temperatureRoot, float &valueOut) {
+static bool pickDistrictTemperature(JsonObject temperatureRoot, float &valueOut) {
   JsonArray data = temperatureRoot["data"].as<JsonArray>();
   if (data.isNull()) {
     return false;
@@ -382,7 +386,7 @@ bool pickDistrictTemperature(JsonObject temperatureRoot, float &valueOut) {
   return !isnan(valueOut);
 }
 
-bool pickHumidity(JsonObject humidityRoot, int &valueOut) {
+static bool pickHumidity(JsonObject humidityRoot, int &valueOut) {
   JsonArray data = humidityRoot["data"].as<JsonArray>();
   if (data.isNull() || data.size() == 0) {
     return false;
@@ -400,7 +404,7 @@ bool pickHumidity(JsonObject humidityRoot, int &valueOut) {
   return valueOut >= 0;
 }
 
-String formatUpdateLabel(const char *isoTime) {
+static String formatUpdateLabel(const char *isoTime) {
   // 2026-07-16T09:45:00+08:00
   if (isoTime == nullptr || strlen(isoTime) < 16) {
     return "";
@@ -417,7 +421,7 @@ String formatUpdateLabel(const char *isoTime) {
   return String(buf);
 }
 
-void drawHeaderAndTemp(const WeatherLayout &layout) {
+static void drawHeaderAndTemp(const WeatherLayout &layout) {
   char tempLine[16];
   if (isnan(weather.temperature)) {
     snprintf(tempLine, sizeof(tempLine), "--°C");
@@ -451,7 +455,7 @@ void drawHeaderAndTemp(const WeatherLayout &layout) {
   fontDrawText(tft, metricsX, my, line, COLOR_TEXT, COLOR_BG);
 }
 
-void drawFooter(const WeatherLayout &layout) {
+static void drawFooter(const WeatherLayout &layout) {
   fontUseDetail();
   char footer[72];
   footer[0] = '\0';
@@ -468,7 +472,7 @@ void drawFooter(const WeatherLayout &layout) {
   }
 }
 
-void drawFooterOnly() {
+static void drawFooterOnly() {
   if (!weatherReady || touchTestMode) {
     return;
   }
@@ -478,7 +482,7 @@ void drawFooterOnly() {
   drawFooter(layout);
 }
 
-void drawForecastBlock(const WeatherLayout &layout) {
+static void drawForecastBlock(const WeatherLayout &layout) {
   fontUseDetail();
 
   const int maxLines = layout.forecastLinesPerPage;
@@ -520,7 +524,7 @@ void drawForecastBlock(const WeatherLayout &layout) {
   drawFooter(layout);
 }
 
-void drawWeatherWarning(const WeatherLayout &layout) {
+static void drawWeatherWarning(const WeatherLayout &layout) {
   if (weather.warning.length() == 0 || layout.warningH <= 0) {
     return;
   }
@@ -534,19 +538,12 @@ void drawWeatherWarning(const WeatherLayout &layout) {
   fontDrawText(tft, textX, textY, weather.warning.c_str(), COLOR_WARN_FG, COLOR_WARN_BG);
 }
 
-bool fetchWeather() {
+static bool fetchWeather() {
   WeatherData next;
 
-  const String currentPayload = httpGet(buildApiUrl("rhrread"));
-  if (currentPayload.isEmpty()) {
-    Serial.println("[Weather] rhrread empty");
-    return false;
-  }
-
   JsonDocument currentDoc;
-  const DeserializationError err = deserializeJson(currentDoc, currentPayload);
-  if (err) {
-    Serial.printf("[Weather] JSON error: %s\n", err.c_str());
+  if (!httpGetJson("rhrread", currentDoc)) {
+    Serial.println("[Weather] rhrread empty");
     return false;
   }
 
@@ -560,20 +557,16 @@ bool fetchWeather() {
   const char *rhrUpdate = currentDoc["updateTime"] | "";
   next.updateLabel = formatUpdateLabel(rhrUpdate);
 
-  const String warnsumPayload = httpGet(buildApiUrl("warnsum"));
-  if (!warnsumPayload.isEmpty()) {
+  {
     JsonDocument warnsumDoc;
-    const DeserializationError warnsumErr = deserializeJson(warnsumDoc, warnsumPayload);
-    if (!warnsumErr) {
+    if (httpGetJson("warnsum", warnsumDoc)) {
       next.warning = joinActiveWarningNames(warnsumDoc.as<JsonObject>());
     }
   }
 
-  const String forecastPayload = httpGet(buildApiUrl("flw"));
-  if (!forecastPayload.isEmpty()) {
+  {
     JsonDocument forecastDoc;
-    const DeserializationError forecastErr = deserializeJson(forecastDoc, forecastPayload);
-    if (!forecastErr) {
+    if (httpGetJson("flw", forecastDoc)) {
       next.forecast = forecastDoc["forecastDesc"] | "";
       const char *flwUpdate = forecastDoc["updateTime"] | "";
       const String flwLabel = formatUpdateLabel(flwUpdate);
@@ -587,11 +580,9 @@ bool fetchWeather() {
     next.forecast = "暫時無法取得本港天氣預測。";
   }
 
-  const String fndPayload = httpGet(buildApiUrl("fnd"));
-  if (!fndPayload.isEmpty()) {
+  {
     JsonDocument fndDoc;
-    const DeserializationError fndErr = deserializeJson(fndDoc, fndPayload);
-    if (!fndErr) {
+    if (httpGetJson("fnd", fndDoc)) {
       JsonArray days = fndDoc["weatherForecast"].as<JsonArray>();
       if (!days.isNull() && days.size() > 0) {
         JsonObject day0 = days[0];
@@ -606,7 +597,7 @@ bool fetchWeather() {
   return true;
 }
 
-void drawStatusScreen(const char *title, const char *detail) {
+static void drawStatusScreen(const char *title, const char *detail) {
   tft.fillScreen(COLOR_BG);
   fontUseMain();
 
@@ -623,7 +614,7 @@ void drawStatusScreen(const char *title, const char *detail) {
   }
 }
 
-void drawTouchMarker(int16_t x, int16_t y) {
+static void drawTouchMarker(int16_t x, int16_t y) {
   tft.fillCircle(x, y, 8, TFT_YELLOW);
   tft.drawCircle(x, y, 12, TFT_WHITE);
   tft.drawFastHLine(x - 18, y, 36, TFT_YELLOW);
@@ -637,7 +628,7 @@ void drawTouchMarker(int16_t x, int16_t y) {
   fontUseMain();
 }
 
-void drawTouchTestScreen() {
+static void drawTouchTestScreen() {
   tft.fillScreen(COLOR_BG);
   fontUseMain();
 
@@ -679,7 +670,7 @@ void drawTouchTestScreen() {
   fontUseMain();
 }
 
-void drawWeatherScreen() {
+static void drawWeatherScreen() {
   rebuildForecastLines();
   const WeatherLayout layout = calcWeatherLayout();
 
@@ -689,7 +680,7 @@ void drawWeatherScreen() {
   drawWeatherWarning(layout);
 }
 
-void drawCurrentPage() {
+static void drawCurrentPage() {
   if (touchTestMode) {
     drawTouchTestScreen();
     if (!touchCalibrating && lastTouchX >= 0) {
@@ -700,7 +691,7 @@ void drawCurrentPage() {
   }
 }
 
-bool handleTouch() {
+static bool handleTouch() {
   if (!touchTestMode) {
     return false;  // 天氣畫面無觸控操作，略過 SoftSPI 取樣
   }

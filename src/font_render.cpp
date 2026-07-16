@@ -234,13 +234,20 @@ int fontTextWidth(const char *text) {
 }
 
 int fontUtf8WrapIndex(const String &text, int maxWidth) {
-  if (text.isEmpty()) {
+  return fontUtf8WrapIndex(text, 0, maxWidth);
+}
+
+int fontUtf8WrapIndex(const String &text, int startIndex, int maxWidth) {
+  if (text.isEmpty() || startIndex >= (int)text.length()) {
     return 0;
+  }
+  if (startIndex < 0) {
+    startIndex = 0;
   }
 
   // 逐字累加寬度，避免每次 substring 全字串量寬（O(n²)）
-  int cut = 0;
-  int pos = 0;
+  int cut = startIndex;
+  int pos = startIndex;
   int width = 0;
   while (pos < (int)text.length()) {
     const int next = nextUtf8Index(text, pos);
@@ -252,19 +259,19 @@ int fontUtf8WrapIndex(const String &text, int maxWidth) {
     memcpy(ch, text.c_str() + pos, len);
     ch[len] = '\0';
     const int cw = fontTextWidth(ch);
-    if (cut > 0 && width + cw > maxWidth) {
+    if (cut > startIndex && width + cw > maxWidth) {
       break;
     }
     width += cw;
     cut = next;
     pos = next;
-    if (cut > 0 && width >= maxWidth) {
+    if (cut > startIndex && width >= maxWidth) {
       break;
     }
   }
 
-  if (cut == 0) {
-    cut = nextUtf8Index(text, 0);
+  if (cut == startIndex) {
+    cut = nextUtf8Index(text, startIndex);
   }
   return cut;
 }

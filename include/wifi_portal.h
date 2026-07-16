@@ -5,7 +5,6 @@
 bool wifiTryConnect();
 bool wifiStartConfigPortal(void (*onStatus)(const char *title, const char *detail));
 bool wifiIsConnected();
-String wifiPortalUrl();
 
 // 地區（Preferences namespace weather / idx）
 int wifiLoadDistrictIndex();

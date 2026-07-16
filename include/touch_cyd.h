@@ -4,9 +4,6 @@
 
 bool touchBegin();
 
-// 讀取 raw（未映射）；成功回傳 true
-bool touchReadRaw(uint16_t &rawX, uint16_t &rawY, uint16_t &rawZ);
-
 // 回傳螢幕座標（與 TFT rotation 0、240x320 對齊）
 bool touchReadScreen(int16_t &x, int16_t &y);
 
